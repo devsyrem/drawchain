@@ -1,0 +1,403 @@
+Building an AI-powered cross-chain NFT generator involves combining Stable Diffusion image generation with multi-blockchain NFT minting capabilities. The goal is to let a user upload a sketch or base image, have an AI model (Stable Diffusion) transform it – especially in a user-chosen art style – and then mint the result as an NFT on various blockchains (Ethereum, Solana, Tron, Avalanche, Base, Stellar, etc.) depending on the connected wallet. This ambitious project aims to cover many hackathon bounty tracks (AI art, multi-chain interoperability, etc.) by integrating multiple technologies. In this R&D report, we break down the development plan, including the Stable Diffusion pipeline, cross-chain NFT minting strategy, system architecture, and how to leverage Replit’s AI Agent to build a fully functional prototype.
+
+Stable Diffusion for Image Generation from Sketches
+
+Stable Diffusion is a powerful image generation model that can work in text-to-image and image-to-image modes. For our use-case, we leverage the image-to-image capability: the user provides a sketch or reference image, and the model will generate a new image that preserves the original content while applying transformations (like adding details or changing style) according to a text prompt. Internally, Stable Diffusion’s img2img feature uses the input image to initialize the diffusion process, then gradually alters it guided by the prompt. The denoising strength parameter controls how much the final image can diverge from the input – a lower value keeps the original structure, while a higher value allows more drastic changes
+stable-diffusion-art.com
+stable-diffusion-art.com
+. By using a low-to-moderate denoising strength, we ensure the AI output stays true to the user’s sketch outline while improving quality.
+
+Applying Custom Styles: We let the user specify a style or choose from presets (e.g. “oil painting”, “anime”, “pixel art”, “Van Gogh style”). The text prompt given to Stable Diffusion will include both a description of the image’s content (if needed) and the desired style. For example, if the user sketches a cat and chooses a “watercolor painting” style, the prompt could be “a watercolor painting of a cat”. Stable Diffusion will then synthesize an image retaining the cat’s form from the sketch but with watercolor aesthetics. The model’s guidance scale (CFG scale) can be set high to enforce the style in the output
+stable-diffusion-art.com
+. Empirical guides suggest using a high CFG (e.g. 20-30) and adjusting denoising strength (around 0.2–0.6) to get a good balance where the style is strongly applied but the original sketch content is preserved
+stable-diffusion-art.com
+stable-diffusion-art.com
+. In practice, this means the system will produce a stylized image that still “looks like” the user’s input drawing.
+
+ControlNet for Sketches (Optional): To further improve fidelity to the user’s sketch, we can incorporate ControlNet Scribble models. ControlNet is an extension that allows adding extra conditioning to Stable Diffusion. With the scribble mode, the user’s drawn lines can be interpreted as edges or guides so the output matches the composition exactly
+learn.thinkdiffusion.com
+. In other words, ControlNet Scribble lets the user “provide manual annotations or markings on an image to guide the generation process”, ensuring the AI respects those markings in the final image
+learn.thinkdiffusion.com
+. If we have time and resources, integrating ControlNet (with a pre-trained scribble model like control_sd15_scribble) would enhance the sketch-to-image feature. For the MVP, however, the basic img2img approach with careful prompt design should suffice to turn a rough sketch into a refined image in the chosen style.
+
+Stable Diffusion Model and Resources: We should use a suitable Stable Diffusion model (such as Stable Diffusion v1.5 for a broad range of styles, or SDXL if higher fidelity is desired and resources allow). Running this model requires significant computation (ideally a GPU). Since we’re developing on Replit, which may not provide a powerful GPU by default, we have a few options:
+
+Use an API: E.g. Stability AI’s API (DreamStudio) or Replicate’s API can handle image generation on their servers. The backend (Replit) would send the user’s image and prompt to the API and get back the generated image. This avoids hosting the heavy model ourselves and speeds up development.
+
+Use a hosted model via Hugging Face or others: If Replit allows, we could use the HuggingFace Diffusers library to run Stable Diffusion. But without a GPU, generation would be very slow. We might consider smaller models or limit image resolution for demo purposes if going this route.
+
+Optimize for demo: We can restrict output image size (e.g. 512x512) and perhaps limit to one image at a time to manage performance. Also, we will need to handle asynchronous processing – i.e. while the image is being generated (which could take several seconds), the user should see a loading indicator.
+
+In summary, Stable Diffusion forms the AI art engine of our project, turning user-provided images into new art with specified styles. This provides the creative NFT content. Next, we’ll discuss how that content becomes an NFT on various chains.
+
+System Architecture and Workflow
+
+To clarify how everything fits together, here’s the high-level workflow of the application (front-end to back-end to blockchain):
+
+User Input (Front-end): The user visits the web application and is presented with an interface to create an NFT. They can upload a base image or sketch (or draw one using a simple canvas tool). They also either select a style from a list or enter a text describing the desired style/art direction. The user then clicks “Generate”.
+
+AI Generation (Back-end): The front-end sends the image and style prompt to the back-end (which could be a Python Flask server or Node.js server running on Replit). The back-end triggers the Stable Diffusion model or API. For example, it might call a function generate_image(input_image, style_text) which handles sending the data to the Stable Diffusion pipeline. The AI will process the input and produce a new image. Using img2img with the given style prompt, the output will incorporate the user’s style instructions while keeping the essence of the original image
+stable-diffusion-art.com
+stable-diffusion-art.com
+. Once generation is done, the back-end returns the generated image to the front-end.
+
+Preview & Refinement (Front-end): The user sees the AI-generated image on the page. At this stage, they could have options: “Regenerate” (if they aren’t satisfied, perhaps with a different prompt or style) or “Mint as NFT”. Assuming they like the result, they proceed to minting.
+
+Minting Trigger (Front-end): When the user clicks “Mint as NFT”, the app will prompt them to connect a wallet if not already connected. Depending on which blockchain the user wants (or is using), they might choose the network or the app auto-detects it. For instance:
+
+If the user has MetaMask (or another Web3 wallet) active on Ethereum, Avalanche, Base, etc., the app will detect an Ethereum provider and know the user is using an EVM chain.
+
+If the user has a Solana wallet (like Phantom) connected, the app will recognize that and prepare the Solana mint flow.
+
+Similarly for Tron (TronLink wallet) or Stellar (e.g. Freighter wallet) – each requires a different approach.
+
+Upload to IPFS: Before creating the NFT on-chain, the image file (the output from Stable Diffusion) needs to be uploaded to a decentralized storage like IPFS (InterPlanetary File System). This ensures the NFT’s image is stored in a permanent, content-addressed way. We’ll upload the image (e.g. using an API like NFT.storage or Pinata) to get an IPFS content ID (CID). We then prepare the NFT metadata JSON which includes at least: a name/title for the piece, perhaps a description, and the image link as an IPFS URI. For example, the JSON may look like:
+
+{
+  "name": "My AI NFT #1",
+  "description": "An AI-generated art piece created from a user sketch and style prompt.",
+  "image": "ipfs://<CID_of_generated_image>"
+}
+
+
+This is following the standard ERC-721 metadata format
+docs.ipfs.tech
+. The IPFS CID is placed in the metadata as an ipfs:// URI, which is the recommended way to reference the content in NFTs (it clearly points to IPFS-stored content and can be resolved via any IPFS gateway or native support)
+docs.ipfs.tech
+docs.ipfs.tech
+. The metadata JSON itself can be stored on IPFS as well, yielding a metadata CID. We’ll need the metadata URI for the mint transaction.
+
+Blockchain Minting (Back-end or Front-end): Now the application mints the NFT on the chosen blockchain, pointing it to the metadata URI. The exact process varies by chain:
+
+EVM Chains (Ethereum, Avalanche, Base, etc.): If using an EVM-compatible chain, we likely have a smart contract (ERC-721 standard) deployed on each target chain. The front-end can call the contract’s mint function via web3 (Ether.js or web3.js) using the connected MetaMask wallet. The function would take the metadata URI (or we might have a base URI in contract and just pass token ID – but simplest is passing full URI). The user will confirm the transaction in MetaMask. On success, a new NFT token is created in that contract, owned by the user’s address, with its tokenURI pointing to the IPFS metadata link
+docs.ipfs.tech
+. We need to ensure our contract supports metadata (most do via ERC721URIStorage extension in OpenZeppelin). We also must handle the case of different networks: for example, if the user’s MetaMask is connected to Avalanche, we call the Avalanche version of the contract. (We might differentiate by chain ID in our code and have a mapping of contract addresses per chain).
+
+Solana: On Solana, NFTs follow a different standard (usually using the Metaplex Token Metadata program). We won’t have an EVM-style contract, but instead use Solana’s web3 libraries or Metaplex SDK. From the front-end (with Phantom wallet), we can invoke an instruction to create an NFT: essentially mint a new token with supply 1, set its metadata (using the URI), and mark it as a non-fungible asset. The Metaplex JS SDK provides a convenient method to create an NFT by supplying the URI and other details, and it will handle the under-the-hood interactions. The user’s Phantom wallet will sign the transaction that creates the NFT on Solana. After creation, the NFT will be associated with the user’s Solana address.
+
+Tron: Tron supports NFTs via the TRC-721 standard, which is analogous to ERC-721. We would need a TRC-721 contract deployed on Tron (written in Solidity). The front-end can interact with it using TronWeb (the TronLink wallet exposes an API similar to web3). The minting call would be similar to Ethereum’s (passing the metadata URI). In a previous Tron hackathon project “Lazara”, the developers followed this approach: after image generation, they uploaded the image to IPFS and then “minted on the chosen chain (Tron mainnet or Shasta testnet)”, allowing the user to view the NFT on a Tron NFT explorer
+forum.trondao.org
+. We can draw from that example for Tron integration.
+
+Stellar: Stellar doesn’t have native smart contracts or an NFT standard as straightforward as ERC-721. However, NFTs can be represented by issuing a custom asset on Stellar (each asset has a unique code and issuer). One approach is to issue a token with a unique code (e.g., an asset code could be the NFT’s ID) and limit the supply to 1. The asset’s metadata isn’t on-chain by default, but we can follow Stellar’s best practices: for example, the issuing account can have a home domain that points to a TOML file including metadata, or we simply treat the IPFS link as the “details” to share with the user. Since this is complex and less standard, a simpler method for the hackathon demo might be: after generating the art, create a Stellar trustline and send the one unit of the asset to the user’s Stellar address, effectively “minting” it as a unique token. We’ll need the user’s Stellar wallet (e.g. via Freighter) to sign the transaction creating the asset. (Alternatively, if time is short, we might simulate a Stellar NFT by just publishing the IPFS link and not do a full on-chain asset, to claim support.)
+
+Circle integration: Circle is primarily known for USDC stablecoin and payments APIs rather than NFT storage, but since it’s listed, we consider how to involve it. One possibility is using Circle’s Programmable Wallets or Payments API to handle transactions. For instance, Circle’s platform could let a user pay with a credit card or fiat to cover minting fees or purchase an NFT, which then triggers the on-chain mint. Another angle: if Circle offers any digital asset issuance API, we could use that as an abstracted way to mint on certain chains. Without specific details, we’ll plan an “optional” integration – e.g., accept credit card payments via Circle to purchase the NFT or use USDC on multiple chains as the currency for any marketplace aspect. This would make the project appealing for the Circle bounty by demonstrating use of their stablecoin infrastructure (perhaps all NFT prices denominated in USDC).
+
+Post-Mint Confirmation: Once the NFT is minted, the app should provide feedback to the user. This could be a link to view the NFT on a block explorer or marketplace (for example, an Etherscan or Solana explorer link with the token address). We’ll show the token ID and transaction hash. The user now owns the NFT on the chosen chain. They could then theoretically trade it on that chain’s marketplaces.
+
+To recap: the architecture consists of a front-end for user interaction, a back-end for AI generation (and possibly for orchestrating IPFS uploads), and smart contract or blockchain interactions for minting. A similar project flow was implemented by Lazara (AI-generated NFTs) where users entered a prompt, the backend ran Stable Diffusion to generate images, then on minting, the image was uploaded to IPFS and minted on Tron blockchain
+forum.trondao.org
+. We are extending this concept to multiple chains and using an image input instead of solely text prompts.
+
+Below is a simplified sequence of steps (in list form) that the system will execute for each NFT creation, integrating the above details:
+
+Step 1: User uploads an image/sketch and provides a style prompt on the web app.
+
+Step 2: Back-end calls Stable Diffusion (via API or locally) to perform image-to-image generation using the user’s input. The result is a styled image.
+
+Step 3: The generated image is returned to front-end and displayed to the user.
+
+Step 4: User connects a crypto wallet of choice (MetaMask, Phantom, TronLink, etc.) and clicks “Mint NFT”.
+
+Step 5: The app uploads the image (and metadata JSON) to IPFS, obtaining an IPFS content hash (CID).
+
+Step 6: The appropriate mint transaction is prepared based on the detected wallet/blockchain:
+
+EVM network (Ethereum/Avalanche/Base): use web3 to call our ERC-721 contract’s mint function with the metadata URI.
+
+Solana: use solana SDK to create an NFT metadata account with the IPFS link.
+
+Tron: use TronWeb to call TRC-721 contract’s mint.
+
+Stellar: create a new asset and send to user (if implemented).
+
+Step 7: User confirms the transaction in their wallet, and it gets broadcasted to the blockchain.
+
+Step 8: On success, the front-end notifies the user and displays a link to view the NFT (e.g., on Etherscan, Solscan, Tronscan, etc., depending on chain).
+
+By following this workflow, we ensure the core functionality – AI-driven image generation and cross-chain NFT minting – is achieved in an intuitive way for the user.
+
+Multi-Chain NFT Minting Strategy
+
+Supporting multiple blockchains in one application is challenging but increases the reach and “bounty eligibility” of the project. Each blockchain has its own NFT standards and wallet ecosystems, so we need to handle each somewhat separately in code. Below we outline how to manage cross-chain compatibility, focusing on the chains mentioned: Ethereum (and EVM compatibles like Avalanche & Base), Solana, Tron, Stellar, and Circle’s platform.
+
+Unified Front-End vs. Chain-Specific Logic
+
+On the front-end, we can implement a chain selector or auto-detection: for example, if a user’s MetaMask is connected, we infer they want to use an EVM chain (and we can show a dropdown of Ethereum/Avalanche/Base as options, or detect the network they’re on). If Phantom is detected, we know it’s Solana; if TronLink, that implies Tron network; if a Stellar wallet, then Stellar. This detection can be done by checking the global objects injected by wallets:
+
+MetaMask injects window.ethereum. We can further check ethereum.networkVersion or chainId to distinguish Ethereum mainnet vs others (Avalanche’s chainId, Base’s chainId, etc.). We’ll support the major EVM networks by providing our contract addresses for each.
+
+Phantom (Solana) injects window.phantom or window.solana. We can use the Solana Wallet Adapter library for web to simplify detecting and connecting Phantom.
+
+TronLink injects a global window.tronWeb when logged in. We can detect that to enable Tron functionality.
+
+Stellar wallets like Freighter have window.freighterApi or we may let the user paste their public key if needed (Freighter also allows transaction signing via an SDK).
+
+Once we know which chain the user is using, the app can toggle the minting logic to the appropriate pathway. We’ll present a unified UI (so the app feels seamless), but under the hood use chain-specific code as needed.
+
+NFT Standards and Contracts
+
+Ethereum/Avalanche/Base (EVM Chains): We will write a single ERC-721 smart contract (perhaps named something like CrossChainAIArtCollection) using Solidity. Using OpenZeppelin libraries is recommended for security and simplicity (ERC721 and ERC721URIStorage for storing token URIs). This contract can be deployed to all EVM networks we target. Each deployment is independent (NFTs won’t automatically sync across chains – they’re essentially separate collections on each chain). That’s acceptable; we’re not doing cross-chain transfers at this time, just offering multiple chain choices for minting. The contract will have a mint(address to, string tokenURI) function callable by our application (we can either allow public minting or restrict it to our backend by having the backend carry a key – but since we want users to mint directly with wallets, making it public is fine).
+
+Each EVM network will have its own chain ID and RPC endpoint. In development, we’ll likely use testnets (e.g. Sepolia for Ethereum, Fuji for Avalanche, Base Goerli, etc.) to avoid fees. The front-end, when calling the contract, will specify the correct network via MetaMask’s provider (we may need to ask the user to switch network if they are on the wrong one). The transaction will cost some gas in that chain’s native currency. Note: Ethereum mainnet gas could be expensive for a demo, so likely we showcase on a testnet or an L2 (Base is an L2 which has cheaper fees, Avalanche C-chain is also cheaper than mainnet, etc.).
+
+Solana: Instead of writing a custom on-chain program, we leverage the existing Metaplex NFT standard. The easiest route is to use the JavaScript SDK from Metaplex. Our front-end (or a cloud function if needed) will call something like metaplex.nfts().create() with parameters: the URI (IPFS link to metadata JSON), name, symbol, and seller_fee_basis_points (royalties, we can set 0 for simplicity). This will create a new token mint and a metadata account. The user’s Phantom wallet will sign this creation. Under the hood, the Metaplex program will mark the token as a non-fungible asset (using the Token Metadata program which ties the mint to the metadata URI). Once done, the NFT appears in the user’s wallet as an NFT asset. We have to ensure the user has some SOL to pay for the transaction fees and minimum rent for metadata account (~0.0015 SOL or so). For the demo, we can airdrop some SOL on devnet to their wallet if needed (or instruct them to use devnet).
+
+Tron: We will deploy a TRC-721 contract on Tron, which can be almost the same Solidity code as our ERC-721 (with minor differences in how it’s deployed or called via TronWeb). Tron’s TRC-721 standard is analogous, and TronLink works similar to MetaMask for signing. In the Tron hackathon example, the project minted NFTs on Tron and allowed viewing on APENFT marketplace
+forum.trondao.org
+, which implies they followed standard practices. We might use TronIDE or TronBox to deploy our contract to Tron’s Nile testnet or Shasta testnet for demo. Tron’s API (TronWeb) will be used in front-end to trigger the mint function. The user needs TRX for gas (Tron is low-cost, so that’s manageable).
+
+Stellar: If implementing, we won’t have a contract (Stellar uses built-in operations). One approach is:
+
+Our backend (or front-end using Stellar SDK) creates a new keypair to be the “issuer” of the NFT asset, and uses the connected user’s Stellar address as the “recipient”.
+
+The asset code could be something like AIART12345 (Stellar asset codes can be up to 12 chars). We issue exactly 1 unit of that asset from issuer to the user. This effectively creates an NFT (unique asset) owned by the user.
+
+We would also attach metadata: Stellar allows adding a small amount of data (key-value pairs) to accounts. We could add the IPFS CID as a memo or as data on the issuer account (for example, a key “ipfsCID” with the value). Alternatively, just provide the user the IPFS link out-of-band, since a full metadata standard isn't there.
+
+The user’s Stellar wallet (if using Freighter) would sign a transaction to accept the asset (trustline) and then receive it. This is quite complex for a user flow, so if time is short, we might simplify by just demonstrating issuing the asset to a known address rather than integrating the wallet fully. Because Stellar integration is likely to impress judges if even partially done, we include it conceptually, but prioritize other chains first.
+
+Circle: As mentioned, Circle’s contribution likely isn’t a chain but rather an API. One concrete integration: use Circle’s USDC and Payment API to allow credit card purchase of the NFT. For example, instead of (or in addition to) having the user press “Mint”, we have an option “Buy with Card (via Circle)”. If selected, the backend would create a payment intent through Circle’s API for a certain amount (perhaps the NFT mint fee or some price). Once the payment is confirmed (Circle can return a webhook), the backend then proceeds to mint the NFT on the user’s chosen chain, and possibly transfer it to a custody wallet or to the user’s provided address. Due to hackathon time constraints, implementing full payment processing is heavy, but even a mock integration (like showing a UI that suggests credit card payment and calling a sandbox API) could tick the box for Circle’s bounty
+blog.indorse.io
+. Another possibility: incorporate USDC as a currency – e.g., require the user to pay 1 USDC to mint (and use Circle’s API or smart contract on each chain to accept USDC). This shows usage of stablecoin in the NFT flow.
+
+Handling Metadata and Image Linking: All chains ultimately should refer to the same IPFS-hosted content so that the image and its description are accessible off-chain. In Ethereum-like systems and Solana, we use the metadata JSON link. In Tron’s TRC-721, likely the same (if the contract has a tokenURI method, we set it to ipfs://CID). For Stellar, the link might not be on-chain, but we can provide it when displaying the asset to the user. Storing the image on IPFS ensures the NFT artwork is not tied to any centralized server and remains accessible. IPFS CIDs are content-addressed and can be resolved via public gateways (like dweb.link) if needed
+docs.ipfs.tech
+docs.ipfs.tech
+.
+
+Cross-Chain Considerations
+
+It’s important to note that each NFT minted is native to the chain it was minted on. A token on Ethereum is distinct from one on Solana, even if they represent the same image/artwork. In a truly “cross-chain NFT” sense, one might implement a bridging system (where an NFT can move between chains, usually by locking on one chain and minting a representation on another)
+chain.link
+chain.link
+. That is beyond our scope for the hackathon – instead, we provide multi-chain support by parallel deployment (the user chooses the chain upfront and the NFT is created there). This is a multi-chain dApp approach rather than a single cross-chain token.
+
+The advantage is we avoid complex cross-chain bridge protocols, and focus on making the user experience seamless. The user doesn’t need to understand the blockchain intricacies; they just connect the wallet they have and the app mints on the corresponding chain. In the future, we could integrate an interoperability protocol (like Chainlink CCIP or LayerZero) to allow transferring the NFT between chains, but that is a stretch goal.
+
+Testing and Compatibility: During development, we should test each chain workflow independently:
+
+Use Ethereum Goerli or Sepolia testnet, Avalanche Fuji, Base testnet, etc., deploying the ERC721 contract and minting test NFTs.
+
+Use Solana Devnet for creating an NFT and see it appear in Phantom’s devnet mode.
+
+Use Tron Shasta testnet similarly.
+
+For Stellar, use the Stellar testnet (Freighter can switch to testnet mode).
+
+Ensure that the UI correctly detects wallet availability and gives feedback like “Phantom wallet not found” if trying Solana without Phantom, etc.
+
+We will likely need to integrate multiple SDKs: Ethers.js for EVM, TronWeb for Tron, @solana/web3.js (and Metaplex) for Solana, and Stellar SDK for Stellar. This increases complexity, but we can modularize the code by chain.
+
+Security and Edge Cases: Since it’s a hackathon prototype, security can be basic (not expecting attacks). But a few considerations:
+
+Only allow minting if the image generation actually succeeded and an IPFS link exists (so we don’t mint empty tokens).
+
+Validate user inputs (the prompt text, etc.) to avoid any injection issues (mostly not a concern on client side).
+
+Set reasonable limits (maybe image size upload limit, and one NFT at a time per user to control load).
+
+Each chain’s transaction might fail (out of gas, network issues); we should catch errors and inform the user to retry or check if their wallet is funded.
+
+Implementation Plan
+
+With the concept and technical approach defined, we now focus on implementing this step-by-step. We will use Replit for development, leveraging its cloud IDE and the Replit AI Agent (Ghostwriter) to accelerate coding tasks. Below is a breakdown of the development plan into components:
+
+1. Front-End Development
+
+We need a simple yet user-friendly interface where the user can:
+
+Upload an image or draw a sketch (for MVP, uploading a file might be easier; drawing on canvas can be added if time permits).
+
+Input or select a style for the art. We can provide a dropdown of style presets (e.g., “Sketch”, “Oil Painting”, “Anime, “Cyberpunk”, etc.) to simplify, plus an “Other” option for a custom text prompt.
+
+A “Generate” button to trigger AI image creation.
+
+A preview area to show the output image.
+
+A “Mint NFT” button and chain selector (if not auto-detected via wallet).
+
+Connect wallet prompts for various chains.
+
+We can choose a web framework: a simple one-page app with plain HTML/JS could suffice, or use a React/Vue if desired. Given hackathon time, a minimal approach (HTML with some JavaScript for interactions) might be quickest to implement using the agent’s help.
+
+File Upload: We will include an <input type="file"> for the image. When the user clicks generate, we should send this file to the backend. This likely means using a form submission or an AJAX request (e.g., using fetch with FormData to a /generate endpoint).
+
+Wallet Connectivity UI: We might include buttons like “Connect MetaMask”, “Connect Phantom”, etc., or a unified connect that tries known wallets. There are libraries like Web3Modal or Solana Wallet Adapter which offer a nice UI for multi-wallet, but integrating those might be complex. Instead, we can implement manual connect flows:
+
+For MetaMask/EVM: simply calling ethereum.request({method: 'eth_requestAccounts'}) to prompt connection.
+
+For Phantom: window.solana.connect() to get the key.
+
+TronLink usually connects by default if installed; we can just check if the address is available via tronWeb.defaultAddress.
+
+Stellar: perhaps ask the user to paste their address or use a web SDK if Freighter supports a connect prompt (Freighter does have a method to connect but the user usually pre-installs it and it provides freighterApi.getPublicKey()).
+
+Replit Agent assistance: We can prompt the Replit Ghostwriter to scaffold a basic HTML page with these elements. For example, instruct it: “Create an HTML page with a form to upload an image and a text input for style, and a preview image element. Include a button to connect wallet (Metamask) and a button to mint NFT.” The agent can generate a starting point. We then refine it with CSS and additional wallet options. We should verify the agent’s output and adjust as needed (Ghostwriter may not be fully updated on the latest web3 APIs, so we might have to correct some calls or include the right scripts).
+
+2. Back-End Development
+
+We will implement server-side logic to handle the AI generation and possibly some parts of the blockchain interaction. We have a couple of choices for backend stack: Python (Flask/FastAPI) or Node.js (Express). Python has the advantage of native stable diffusion libraries (like diffusers) if we plan to try local generation. Node could more easily interface with web3 JS libraries in a single environment, but we can also call web3 from front-end.
+
+A likely architecture:
+
+A Flask server with two main endpoints: /generate (POST endpoint to accept the image and style and return generated image) and perhaps /mint (to handle IPFS upload and return metadata link, though minting itself might be done client-side to involve the user's wallet).
+
+Alternatively, do all blockchain interactions client-side (since the user’s wallet will sign, that has to happen in their browser anyway for non-custodial flows). The backend could still help by pinning to IPFS, since an IPFS API key might be needed (we don’t want that exposed in front-end). So the backend can accept a request with the image (or take the already generated image in memory) and upload to IPFS, then return the IPFS CID to the front-end for use in minting.
+
+Stable Diffusion integration: If using an external API, the backend just needs to format the request. For example, Stability AI’s API expects a base64 of the image or an image URL, plus the prompt and some parameters. We’d call that and get back the generated image (likely also as base64 or an URL). We then send that to the client. If using diffusers library, the backend will load the model at startup (which may be slow or impossible if no GPU). Given the hackathon context, using the API is pragmatic. We should keep the API key secret (store as Replit secret environment variable).
+
+IPFS upload: We can use a service like NFT.storage which has a simple JS or Python client. For example, in Python using nft_storage library: api.store_file(image_file) and api.store_metadata(metadata_json). Or using Pinata’s pinning API via an HTTP request. We’ll let the Replit agent write a function for IPFS upload if possible (we provide it the API call format). NFT.storage is free and easy – just need an API token. We’ll do this on the backend so the token isn’t in client code.
+
+APIs for Blockchain (if any on backend): We might not need the backend to interact with the blockchain directly, except possibly for Stellar if we choose to do server-side issuance (since Stellar could be custodial if we wanted). But safer to do all user-facing chain operations in the front-end with the user’s wallet (to avoid managing private keys on server). The backend might just deploy contracts initially (done outside the app), but during the app run it doesn’t need to do EVM transactions itself.
+
+Using Replit Agent for backend: We can prompt the agent to create a Flask app with an endpoint to receive an image and prompt and return an image. Also, we need to handle storing the image (perhaps temporarily on disk or directly sending the result as base64 via JSON). One must be careful to not overload the agent – building image processing might be tricky for it. We should implement step by step:
+
+Set up a basic Flask server with a test route (agent can do this quickly).
+
+Add code to handle file upload.
+
+Integrate an API call to Stability AI. (We might provide the agent with an example cURL or Python snippet from Stability’s docs to guide it).
+
+Make sure the server returns the image data properly (possibly as a base64 string or a URL). For simplicity, we might have the server temporarily save the output image to static folder and return the URL path.
+
+Test this with a sample image and prompt.
+
+Real-time feedback: The generation might take a while (few seconds). We can implement long polling or simply block the request until done and then respond. The front-end can show a spinner in the meantime.
+
+3. Smart Contracts Deployment
+
+We will prepare our ERC-721 contract code (Solidity). If we use OpenZeppelin, it might look like:
+
+contract AIArtNFT is ERC721URIStorage {
+    uint256 public tokenCounter;
+    constructor() ERC721("AIArtNFT", "AIART") {
+        tokenCounter = 0;
+    }
+    function mint(address to, string memory tokenURI) public returns (uint256) {
+        uint256 newId = tokenCounter;
+        _safeMint(to, newId);
+        _setTokenURI(newId, tokenURI);
+        tokenCounter += 1;
+        return newId;
+    }
+}
+
+
+This allows anyone to mint; we could restrict it so that only our backend (or a specific account) can call mint to prevent abuse (but since it’s hackathon, open mint is fine). We’ll compile and deploy this on:
+
+Ethereum testnet,
+
+Avalanche Fuji,
+
+Base Goerli,
+
+Tron Shasta (via Tron’s remix or TronIDE, adjusting if needed – Tron might require specifying the contract in Tron format, but likely similar. We need the contract address and TronLink will need the ABI to interact.)
+
+For Solana, no contract to deploy; we rely on Metaplex.
+
+Stellar, no contract.
+
+We should record the deployed addresses and embed them in our front-end configuration (e.g., a dictionary mapping chain -> contract address and ABI).
+
+Gas and fees: We ensure to use test networks or have a small amount of crypto for gas on each network for demo. Tron testnet TRX can be obtained from a faucet, same with others.
+
+4. Integrating Wallet and Mint Functionality (Front-end)
+
+With contracts in place and backend providing IPFS links, the last mile is making the front-end perform the actual mint transaction when user clicks mint:
+
+EVM flow: Use Ethers.js. The agent can help write a JS function to call a contract. We provide it ABI and contract address, then something like:
+
+const provider = new ethers.BrowserProvider(window.ethereum);
+const signer = await provider.getSigner();
+const contract = new ethers.Contract(contractAddress, abi, signer);
+const tx = await contract.mint(signer.address, metadataURI);
+await tx.wait();
+
+
+This will pop up MetaMask. We should wrap in try/catch and handle user rejection or errors. We also likely need to ensure the user’s network (chainId) matches the contract’s chain; if not, prompt them to switch (MetaMask’s API can request network change if we supply the params).
+
+Solana flow: Use Solana web3.js. The agent might be less familiar with Solana, but we can guide it. Essentially, we’ll use window.solana to get the public key and then use the Metaplex SDK or direct call:
+The simplest is to use the metaplex SDK (which itself uses @solana/web3 under the hood). But integrating that might be heavy. Alternatively, call the Metaplex JSON RPC directly by constructing instructions – that’s complex. Given time, perhaps use a simpler approach: we could have the backend do the Solana mint by running a script with the user’s public key (not ideal as it would need their private key which we don’t have). Instead, a compromise: show a message like “Use our Solana tool to mint” if fully integrating is too much. But since we want to impress, let’s aim to get Phantom to sign:
+We can use Solana’s Transaction class to create a transfer of a new token with Metaplex’s instruction. There is a library @metaplex-foundation/js that could be installed. Possibly Ghostwriter can help set that up.
+
+Tron flow: Using TronWeb, which might be available via window.tronWeb. TronWeb allows calling smart contract functions. For example:
+
+const contract = await tronWeb.contract().at(tronContractAddress);
+await contract.mint(userAddress, metadataURI).send();
+
+
+TronLink would prompt a signature. We have to ensure TronLink is in the proper network (Shasta vs mainnet).
+
+Stellar flow: Could be done by sending a prepared XDR for the user to sign via Freighter. If time, at least demonstrate reading user’s public key and maybe simulate an issue of an asset (perhaps using the Freighter API to sign a transaction that we create in JS).
+
+It might be wise to implement one chain at a time, test it, then move to the next. MetaMask/EVM is likely easiest to start, then Tron (since similar concept), then Solana (since different), and Stellar last.
+
+5. Demo and Presentation Prep
+
+We must ensure the entire flow works at least on a couple of chains for the demo. It’s better to have two fully working chains than five half-working ones. A strategy:
+
+Focus on one EVM chain (say Base or Avalanche for low cost) and Solana to demonstrate both an EVM and a non-EVM chain.
+
+Tron could be the third if we can get it easily working, because Tron’s hackathon angle is strong (Tron often has separate prize).
+
+The UI can list all options but we can note which are demo-ready versus “in progress”.
+
+We should prepare some pre-generated example to save time during demo (in case stable diffusion API is slow). Possibly cache one output so we can quickly show minting. However, live generation is more impressive, so maybe generate early in the demo then talk while waiting.
+
+Also, collect relevant links to show: after minting, open the explorer to show the NFT. For instance, on Etherscan (or Opensea testnet if available) to prove it’s minted. On Solana, use Solana explorer or Phantom wallet’s NFT section.
+
+Leveraging Replit’s AI Agent for Development
+
+The development process can be significantly accelerated by using Replit’s Ghostwriter AI Agent. This tool can generate and modify code based on natural language prompts, which is invaluable in a time-constrained hackathon setting. However, using the agent effectively requires strategy. Here are some best practices (gleaned from experience and community tips) to focus our R&D on development with the Replit agent:
+
+Break Down Tasks: Don’t ask the agent to build the entire project in one go. Instead, tackle it component by component. For example, start by prompting: “Create a basic HTML page with an image upload input, a text input for style, and a button to submit.” Once that’s done and verified, next prompt: “Now, write a Flask backend endpoint ‘/generate’ that accepts an image file and a style string, and returns an image (perhaps saved to static folder).” By iterating like this, we keep the agent’s context focused and avoid overwhelming it. If the agent attempts something complex and fails, step back and simplify the prompt.
+
+Provide Clear Specifications: The agent can only do what you specify. Be explicit about libraries and versions. For instance: “Use the requests library to call the Stability AI API with the image. The API key is stored in an environment variable. Parse the response (which is JSON with a base64 image) and save it.” The clearer the instructions, the less likely the agent will hallucinate incorrect code.
+
+Review and Test Frequently: After the agent generates code, immediately run it (or a portion of it) to see if it works. Because as one hacker noted, “debugging AI-generated code is harder than human code because the errors are logical, not syntax”
+reddit.com
+. So we should test each piece. If something doesn’t work, use the agent to debug by sharing the error message or describing the issue.
+
+Use Logging and Expose Internal State: A clever trick when working with the agent is to add extensive console logging in the code, so the agent can see what’s happening during runtime
+reddit.com
+. For example, print out variables at key steps in the generation and minting process. If a step fails, the agent can read those logs and help pinpoint where the logic went wrong. “Put as many console logs as possible throughout the code so that the agent has access to the data flow as it goes through your application”
+reddit.com
+. On Replit, the agent can read the console output when debugging, which is a unique advantage. For instance, log the IPFS response, log the wallet addresses, etc., then ask the agent: “Given these logs, why did the mint function not complete successfully?”
+
+Iteration when Stuck: If after a few tries the agent can’t fix a bug, you may need to intervene manually. Often, the agent might loop on a wrong approach. In such cases, it’s advised to “go back to the drawing board, update your understanding of the application, and re-prompt the agent from scratch with that new knowledge”
+reddit.com
+. This might mean explaining the correct sequence to the agent and letting it generate a fresh solution for that part. Drawing a quick flow diagram or writing out the logic step-by-step (for yourself and then the agent) can clarify the requirements.
+
+Leverage Agent for Multi-language Coordination: We are dealing with web (HTML/JS) and backend (Python) and possibly contract code. Ghostwriter can handle multiple files. We should name files clearly (e.g., index.html, app.py, script.js) and ask the agent to edit specific files as needed. For instance: “Open app.py and add a /mint endpoint that uses Pinata API to upload a file to IPFS. Use axios to call the API.” The agent will switch context to that file if instructed. This way, we orchestrate the whole project structure through the agent.
+
+Agent’s Limits: Remember, the agent may produce syntactically correct code that doesn’t logically do what we want. Always verify critical parts (like security of wallet interactions, correct contract addresses, etc.). For example, if the agent hardcodes something incorrectly, correct it and tell the agent about the change so it knows the new state.
+
+Using the agent should save a lot of boilerplate coding time (setting up routes, writing HTML, etc.), allowing us to focus on integrating the distinct pieces. It’s almost like having a junior developer who works at super speed but needs very specific guidance and oversight. By focusing our development R&D on leveraging the agent for setup and repetitive tasks, we can reserve our mental energy for the creative integration and problem-solving aspects.
+
+Conclusion
+
+This project – an AI-driven NFT minter that works across multiple blockchains – is ambitious but feasible with a clear plan and the aid of modern development tools. We have outlined how a user’s sketch can be transformed into a piece of art by Stable Diffusion (with techniques like img2img stylization and even ControlNet for better results), and how that art can be tokenized on various networks (Ethereum/Avalanche/Base via ERC-721, Solana via Metaplex, Tron via TRC-721, Stellar via asset issuance, and potentially integrating Circle’s services for payments or wallets). By designing a logical workflow and architecture, we ensure each part of the system connects: the frontend gathers input and displays output, the backend handles AI generation and IPFS storage, and the blockchain layer secures ownership of the created art.
+
+Importantly, this approach touches many hackathon tracks: AI innovation (creative use of Stable Diffusion), cross-chain interoperability, multi-chain user experience, and even web3 x AI agent integration (since we utilize Replit’s AI Agent in the development process itself). Each of the mentioned blockchains and platforms (Solana, Ethereum, Tron, Avalanche, Base, Stellar, Circle) gets a role in the solution, increasing the project’s relevance to their respective bounties.
+
+In implementing this, we should remain agile. If time runs short, we’ll prioritize a polished demo with a couple of chains and mention the others as supported theoretically or in future work. The demo will involve a live generation of art from a doodle and the minting of that art into an NFT visible on-chain – a powerful showcase of what AI and blockchain can do together. With the preparation done in this R&D and the coding boost from the Replit agent (guided by careful prompts and iterative debugging), we are well on our way to building a fully functioning prototype for the hackathon’s demo day. Good luck to us in hacking together this cross-chain AI NFT platform!
+
+Sources:
+
+Stable Diffusion img2img stylization process
+stable-diffusion-art.com
+stable-diffusion-art.com
+
+ControlNet Scribble for sketch guidance
+learn.thinkdiffusion.com
+
+Example of AI NFT generation pipeline (Lazara project)
+forum.trondao.org
+
+IPFS NFT metadata JSON example (ERC-721 standard)
+docs.ipfs.tech
+
+Replit agent usage tips (debugging and re-prompting)
+reddit.com
+reddit.com
